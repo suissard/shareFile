@@ -28,7 +28,6 @@
                 <div id="receive-step-1">
                     <p class="font-medium text-slate-700 mb-4">Scannez ce QR Code avec l'appareil qui envoie le fichier :</p>
                     
-                    <!-- Configuration de l'URL / IP -->
                     <div class="text-left bg-slate-50 p-3 rounded-lg border border-slate-200 mb-4">
                         <label class="block text-xs font-semibold text-slate-500 mb-1">URL de base (modifiez si besoin) :</label>
                         <input type="text" id="base-url-input" class="w-full bg-white p-2 rounded text-sm outline-none border border-slate-300 focus:border-indigo-500 transition" oninput="updateShareLink()">
@@ -54,9 +53,18 @@
                 <div id="receive-step-2" class="hidden">
                     <div class="p-4 bg-green-50 text-green-700 rounded-xl border border-green-200">
                         <p class="font-bold flex items-center justify-center gap-2">✅ Appareil connecté !</p>
-                        <p class="text-sm mt-1">En attente de réception du fichier...</p>
+                        <p class="text-sm mt-1">Prêt à recevoir des fichiers.</p>
                     </div>
-                    <div id="download-area" class="mt-4"></div>
+
+                    <!-- Barre de progression réception -->
+                    <div id="receive-progress-container" class="hidden mt-4 text-left">
+                        <p id="receive-progress-text" class="text-sm text-indigo-600 font-medium mb-1">Réception : 0%</p>
+                        <div class="w-full bg-slate-200 rounded-full h-2.5">
+                            <div id="receive-progress-bar" class="bg-indigo-600 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+                        </div>
+                    </div>
+
+                    <div id="download-area"></div>
                 </div>
             </div>
 
@@ -82,8 +90,12 @@
                         📤 Envoyer le fichier
                     </button>
                     
-                    <div id="send-progress" class="hidden mt-2 text-sm text-indigo-600 font-medium">
-                        Envoi en cours... 🚀
+                    <!-- Barre de progression envoi -->
+                    <div id="send-progress-container" class="hidden mt-4 text-left">
+                        <p id="send-progress-text" class="text-sm text-indigo-600 font-medium mb-1">Envoi : 0%</p>
+                        <div class="w-full bg-slate-200 rounded-full h-2.5">
+                            <div id="send-progress-bar" class="bg-indigo-600 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -109,6 +121,11 @@
             initSender(targetId);
         }
 
+        // --- Logique Receveur ---
+        let receivedBuffers = [];
+        let receivedSize = 0;
+        let fileMeta = null;
+
         function startReceiving() {
             hide('view-home');
             show('view-receive');
@@ -118,16 +135,9 @@
 
             peer.on('open', (id) => {
                 currentPeerId = id;
-                
-                // On garde l'URL exacte (file:// ou http://)
                 let baseUrl = window.location.href.split('?')[0];
                 document.getElementById('base-url-input').value = baseUrl;
-                
-                // Avertissement si c'est un fichier local
-                if (baseUrl.startsWith('file:')) {
-                    show('local-file-warning');
-                }
-                
+                if (baseUrl.startsWith('file:')) show('local-file-warning');
                 updateShareLink();
             });
 
@@ -137,19 +147,40 @@
                 show('receive-step-2');
 
                 conn.on('data', (data) => {
-                    if (data.type === 'file') {
-                        const blob = new Blob([data.file], { type: data.mimeType });
+                    if (data.type === 'header') {
+                        // Début du fichier
+                        fileMeta = data;
+                        receivedBuffers = [];
+                        receivedSize = 0;
+                        show('receive-progress-container');
+                        document.getElementById('receive-progress-text').innerText = `Réception : 0%`;
+                        document.getElementById('receive-progress-bar').style.width = '0%';
+                    } 
+                    else if (data.type === 'chunk') {
+                        // Morceau de fichier
+                        receivedBuffers.push(data.data);
+                        receivedSize += data.data.byteLength;
+                        
+                        const percent = Math.round((receivedSize / fileMeta.size) * 100);
+                        document.getElementById('receive-progress-bar').style.width = percent + '%';
+                        document.getElementById('receive-progress-text').innerText = `Réception : ${percent}%`;
+                    } 
+                    else if (data.type === 'eof') {
+                        // Fin du fichier
+                        const blob = new Blob(receivedBuffers, { type: fileMeta.mimeType });
                         const url = URL.createObjectURL(blob);
                         
+                        hide('receive-progress-container');
                         const dlArea = document.getElementById('download-area');
                         dlArea.innerHTML = `
-                            <div class="p-4 bg-indigo-50 rounded-xl border border-indigo-100">
-                                <p class="mb-3 text-indigo-900 font-medium truncate">📦 ${data.filename}</p>
-                                <a href="${url}" download="${data.filename}" class="inline-block w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-lg transition">
+                            <div class="p-4 bg-indigo-50 rounded-xl border border-indigo-100 mt-4">
+                                <p class="mb-3 text-indigo-900 font-medium truncate">📦 ${fileMeta.filename}</p>
+                                <a href="${url}" download="${fileMeta.filename}" class="inline-block w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-lg transition text-center">
                                     💾 Télécharger
                                 </a>
                             </div>
                         `;
+                        receivedBuffers = []; // Libère la RAM
                     }
                 });
             });
@@ -157,7 +188,6 @@
 
         function updateShareLink() {
             if (!currentPeerId) return;
-            
             const baseUrl = document.getElementById('base-url-input').value;
             const shareUrl = `${baseUrl}?sendTo=${currentPeerId}`;
             document.getElementById('share-link').value = shareUrl;
@@ -165,36 +195,21 @@
             try {
                 const qrContainer = document.getElementById('qrcode');
                 qrContainer.innerHTML = ''; 
-                
-                new QRCode(qrContainer, {
-                    text: shareUrl,
-                    width: 200,
-                    height: 200,
-                    colorDark : "#1e1b4b",
-                    colorLight : "#ffffff",
-                    correctLevel : QRCode.CorrectLevel.L
-                });
-            } catch (err) {
-                console.error("Erreur QRCode:", err);
-            }
+                new QRCode(qrContainer, { text: shareUrl, width: 200, height: 200, colorDark : "#1e1b4b", colorLight : "#ffffff", correctLevel : QRCode.CorrectLevel.L });
+            } catch (err) { console.error(err); }
         }
 
+        // --- Logique Emetteur ---
         function initSender(receiverId) {
             peer = new Peer();
-
             peer.on('open', () => {
                 conn = peer.connect(receiverId, { reliable: true });
-
                 conn.on('open', () => {
                     hide('send-status-connecting');
                     show('send-form');
                 });
-
                 conn.on('error', (err) => {
-                    const statusBox = document.getElementById('send-status-connecting');
-                    statusBox.innerHTML = `❌ Erreur de connexion : ${err.message || err}`;
-                    statusBox.classList.replace('bg-amber-50', 'bg-red-50');
-                    statusBox.classList.replace('text-amber-700', 'text-red-700');
+                    document.getElementById('send-status-connecting').innerHTML = `❌ Erreur : ${err.message || err}`;
                 });
             });
         }
@@ -219,22 +234,49 @@
             if (!selectedFile || !conn) return;
 
             const btn = document.getElementById('send-btn');
-            const progress = document.getElementById('send-progress');
-            
             btn.disabled = true;
-            show('send-progress');
-
+            show('send-progress-container');
+            
+            // 1. Envoi des infos du fichier
             conn.send({
-                type: 'file',
+                type: 'header',
                 filename: selectedFile.name,
                 mimeType: selectedFile.type,
-                file: selectedFile
+                size: selectedFile.size
             });
 
-            setTimeout(() => {
-                progress.innerHTML = "✅ Fichier envoyé !";
-                progress.classList.replace('text-indigo-600', 'text-green-600');
-            }, 500);
+            // 2. Envoi par morceaux (Chunks) de 256 Ko
+            const CHUNK_SIZE = 256 * 1024;
+            let offset = 0;
+            const reader = new FileReader();
+
+            reader.onload = function(e) {
+                conn.send({ type: 'chunk', data: e.target.result });
+                offset += e.target.result.byteLength;
+
+                const percent = Math.round((offset / selectedFile.size) * 100);
+                document.getElementById('send-progress-bar').style.width = percent + '%';
+                document.getElementById('send-progress-text').innerText = `Envoi : ${percent}%`;
+
+                if (offset < selectedFile.size) {
+                    // Lit le prochain morceau
+                    readSlice(offset);
+                } else {
+                    // 3. Fichier terminé
+                    conn.send({ type: 'eof' });
+                    document.getElementById('send-progress-text').innerText = "✅ Fichier envoyé !";
+                    document.getElementById('send-progress-text').classList.replace('text-indigo-600', 'text-green-600');
+                    btn.disabled = false; // Permet d'envoyer un autre fichier
+                }
+            };
+
+            const readSlice = (o) => {
+                const slice = selectedFile.slice(o, o + CHUNK_SIZE);
+                reader.readAsArrayBuffer(slice);
+            };
+
+            // Démarrage de la lecture
+            readSlice(0);
         }
 
         function copyLink() {
@@ -242,18 +284,9 @@
             link.select();
             link.setSelectionRange(0, 99999); 
             document.execCommand("copy");
-            
             const btn = document.getElementById('copy-btn');
-            const originalText = btn.innerText;
             btn.innerText = "Copié !";
-            btn.classList.add('bg-green-100', 'text-green-700');
-            btn.classList.remove('bg-indigo-100', 'text-indigo-600');
-            
-            setTimeout(() => {
-                btn.innerText = originalText;
-                btn.classList.remove('bg-green-100', 'text-green-700');
-                btn.classList.add('bg-indigo-100', 'text-indigo-600');
-            }, 2000);
+            setTimeout(() => { btn.innerText = "Copier"; }, 2000);
         }
     </script>
 </body>
