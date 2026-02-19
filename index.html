@@ -55,6 +55,15 @@
                         <p class="font-bold flex items-center justify-center gap-2">✅ Appareil connecté !</p>
                         <p class="text-sm mt-1">Prêt à recevoir des fichiers.</p>
                     </div>
+                    
+                    <!-- Dialogue d'acceptation du fichier -->
+                    <div id="receive-accept-dialog" class="hidden p-4 bg-indigo-50 rounded-xl border border-indigo-200 mt-4 text-center">
+                        <p class="font-bold text-indigo-900 mb-2">Fichier entrant :</p>
+                        <p id="incoming-file-name" class="text-sm text-indigo-700 mb-4 font-mono truncate"></p>
+                        <button onclick="acceptFile()" class="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded-lg transition">
+                            Accepter & Enregistrer
+                        </button>
+                    </div>
 
                     <!-- Barre de progression réception -->
                     <div id="receive-progress-container" class="hidden mt-4 text-left">
@@ -86,7 +95,7 @@
                     </label>
                     <p id="selected-file-name" class="text-sm text-slate-500 truncate"></p>
 
-                    <button onclick="sendFile()" id="send-btn" disabled class="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-semibold py-3 px-4 rounded-xl transition shadow-md">
+                    <button onclick="sendFileRequest()" id="send-btn" disabled class="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-semibold py-3 px-4 rounded-xl transition shadow-md">
                         📤 Envoyer le fichier
                     </button>
                     
@@ -125,6 +134,9 @@
         let receivedBuffers = [];
         let receivedSize = 0;
         let fileMeta = null;
+        let fileHandle = null;
+        let writableStream = null;
+        let isStreaming = false;
 
         function startReceiving() {
             hide('view-home');
@@ -146,44 +158,82 @@
                 hide('receive-step-1');
                 show('receive-step-2');
 
-                conn.on('data', (data) => {
+                conn.on('data', async (data) => {
                     if (data.type === 'header') {
-                        // Début du fichier
+                        // Réception de l'entête : demande à l'utilisateur d'accepter
                         fileMeta = data;
-                        receivedBuffers = [];
-                        receivedSize = 0;
-                        show('receive-progress-container');
-                        document.getElementById('receive-progress-text').innerText = `Réception : 0%`;
-                        document.getElementById('receive-progress-bar').style.width = '0%';
+                        document.getElementById('incoming-file-name').innerText = `${data.filename} (${(data.size / 1024 / 1024).toFixed(2)} Mo)`;
+                        show('receive-accept-dialog');
                     } 
                     else if (data.type === 'chunk') {
-                        // Morceau de fichier
-                        receivedBuffers.push(data.data);
-                        receivedSize += data.data.byteLength;
+                        // Écriture du morceau
+                        if (isStreaming && writableStream) {
+                            await writableStream.write(data.data);
+                        } else {
+                            receivedBuffers.push(data.data); // Fallback RAM (risqué pour gros fichiers)
+                        }
                         
+                        receivedSize += data.data.byteLength;
                         const percent = Math.round((receivedSize / fileMeta.size) * 100);
                         document.getElementById('receive-progress-bar').style.width = percent + '%';
                         document.getElementById('receive-progress-text').innerText = `Réception : ${percent}%`;
                     } 
                     else if (data.type === 'eof') {
                         // Fin du fichier
-                        const blob = new Blob(receivedBuffers, { type: fileMeta.mimeType });
-                        const url = URL.createObjectURL(blob);
-                        
                         hide('receive-progress-container');
                         const dlArea = document.getElementById('download-area');
-                        dlArea.innerHTML = `
-                            <div class="p-4 bg-indigo-50 rounded-xl border border-indigo-100 mt-4">
-                                <p class="mb-3 text-indigo-900 font-medium truncate">📦 ${fileMeta.filename}</p>
-                                <a href="${url}" download="${fileMeta.filename}" class="inline-block w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-lg transition text-center">
-                                    💾 Télécharger
-                                </a>
-                            </div>
-                        `;
-                        receivedBuffers = []; // Libère la RAM
+                        
+                        if (isStreaming && writableStream) {
+                            await writableStream.close();
+                            dlArea.innerHTML = `<div class="p-4 bg-green-50 text-green-700 rounded-xl border border-green-200 mt-4 text-center font-medium">✅ Fichier sauvegardé avec succès !</div>`;
+                        } else {
+                            // Fallback Blob (Mobile / Firefox)
+                            const blob = new Blob(receivedBuffers, { type: fileMeta.mimeType });
+                            const url = URL.createObjectURL(blob);
+                            dlArea.innerHTML = `
+                                <div class="p-4 bg-indigo-50 rounded-xl border border-indigo-100 mt-4">
+                                    <p class="mb-3 text-indigo-900 font-medium truncate">📦 ${fileMeta.filename}</p>
+                                    <a href="${url}" download="${fileMeta.filename}" class="inline-block w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-lg transition text-center">
+                                        💾 Télécharger
+                                    </a>
+                                </div>
+                            `;
+                            receivedBuffers = [];
+                        }
                     }
                 });
+                
+                conn.on('close', () => {
+                    if (isStreaming && writableStream) writableStream.close();
+                    document.getElementById('receive-step-2').innerHTML += `<p class="text-red-500 mt-2 text-sm">❌ Connexion perdue avec l'émetteur.</p>`;
+                });
             });
+        }
+
+        async function acceptFile() {
+            hide('receive-accept-dialog');
+            show('receive-progress-container');
+            document.getElementById('receive-progress-text').innerText = `Réception : 0%`;
+            document.getElementById('receive-progress-bar').style.width = '0%';
+            
+            // Tentative d'utilisation de l'API File System (Chrome/Edge) pour écrire sur le disque
+            if ('showSaveFilePicker' in window) {
+                try {
+                    fileHandle = await window.showSaveFilePicker({ suggestedName: fileMeta.filename });
+                    writableStream = await fileHandle.createWritable();
+                    isStreaming = true;
+                } catch (e) {
+                    console.warn("Écriture disque annulée/non supportée. Fallback en RAM.", e);
+                    isStreaming = false;
+                    receivedBuffers = [];
+                }
+            } else {
+                isStreaming = false;
+                receivedBuffers = [];
+            }
+            
+            receivedSize = 0;
+            conn.send({ type: 'ready' }); // On informe l'émetteur qu'il peut envoyer les chunks
         }
 
         function updateShareLink() {
@@ -200,6 +250,8 @@
         }
 
         // --- Logique Emetteur ---
+        let isSending = false;
+
         function initSender(receiverId) {
             peer = new Peer();
             peer.on('open', () => {
@@ -208,8 +260,17 @@
                     hide('send-status-connecting');
                     show('send-form');
                 });
+                conn.on('data', (data) => {
+                    if (data.type === 'ready') {
+                        startSendingChunks();
+                    }
+                });
                 conn.on('error', (err) => {
                     document.getElementById('send-status-connecting').innerHTML = `❌ Erreur : ${err.message || err}`;
+                });
+                conn.on('close', () => {
+                    isSending = false;
+                    document.getElementById('send-progress-text').innerText = "❌ Connexion perdue.";
                 });
             });
         }
@@ -221,7 +282,7 @@
 
             if (input.files.length > 0) {
                 selectedFile = input.files[0];
-                nameDisplay.textContent = `Fichier : ${selectedFile.name} (${(selectedFile.size / 1024 / 1024).toFixed(2)} MB)`;
+                nameDisplay.textContent = `Fichier : ${selectedFile.name} (${(selectedFile.size / 1024 / 1024).toFixed(2)} Mo)`;
                 btn.disabled = false;
             } else {
                 selectedFile = null;
@@ -230,27 +291,30 @@
             }
         }
 
-        function sendFile() {
+        function sendFileRequest() {
             if (!selectedFile || !conn) return;
-
-            const btn = document.getElementById('send-btn');
-            btn.disabled = true;
+            document.getElementById('send-btn').disabled = true;
+            document.getElementById('send-progress-text').innerText = "En attente de l'acceptation par le receveur...";
+            document.getElementById('send-progress-text').classList.replace('text-green-600', 'text-indigo-600');
             show('send-progress-container');
             
-            // 1. Envoi des infos du fichier
+            isSending = true;
             conn.send({
                 type: 'header',
                 filename: selectedFile.name,
                 mimeType: selectedFile.type,
                 size: selectedFile.size
             });
+        }
 
-            // 2. Envoi par morceaux (Chunks) de 256 Ko
-            const CHUNK_SIZE = 256 * 1024;
+        function startSendingChunks() {
+            const CHUNK_SIZE = 256 * 1024; // 256 Ko
             let offset = 0;
             const reader = new FileReader();
 
             reader.onload = function(e) {
+                if (!conn.open || !isSending) return; // Arrêt si déco
+
                 conn.send({ type: 'chunk', data: e.target.result });
                 offset += e.target.result.byteLength;
 
@@ -259,14 +323,24 @@
                 document.getElementById('send-progress-text').innerText = `Envoi : ${percent}%`;
 
                 if (offset < selectedFile.size) {
-                    // Lit le prochain morceau
-                    readSlice(offset);
+                    checkBufferAndReadNext();
                 } else {
-                    // 3. Fichier terminé
                     conn.send({ type: 'eof' });
                     document.getElementById('send-progress-text').innerText = "✅ Fichier envoyé !";
                     document.getElementById('send-progress-text').classList.replace('text-indigo-600', 'text-green-600');
-                    btn.disabled = false; // Permet d'envoyer un autre fichier
+                    document.getElementById('send-btn').disabled = false;
+                    isSending = false;
+                }
+            };
+
+            const checkBufferAndReadNext = () => {
+                if (!conn.open || !isSending) return;
+                
+                // BACKPRESSURE : Si le tampon WebRTC dépasse 8 Mo, on fait une pause
+                if (conn.dataChannel && conn.dataChannel.bufferedAmount > 8 * 1024 * 1024) {
+                    setTimeout(checkBufferAndReadNext, 50); // Attend 50ms
+                } else {
+                    readSlice(offset);
                 }
             };
 
@@ -275,7 +349,6 @@
                 reader.readAsArrayBuffer(slice);
             };
 
-            // Démarrage de la lecture
             readSlice(0);
         }
 
