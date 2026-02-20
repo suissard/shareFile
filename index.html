@@ -15,37 +15,75 @@
             
             <h1 class="text-2xl font-bold mb-6 text-indigo-600">📁 Partage Direct</h1>
 
-            <!-- VUE 1 : ACCUEIL -->
-            <div id="view-home" class="space-y-4">
-                <p class="text-slate-500 mb-6">Partagez des fichiers directement entre deux appareils, sans serveur intermédiaire.</p>
-                <button onclick="startReceiving()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-4 rounded-xl transition shadow-md flex items-center justify-center gap-2">
-                    📥 Recevoir un fichier
-                </button>
+            <!-- VUE 1 : ACCUEIL (Choix Envoyer / Recevoir) -->
+            <div id="view-home" class="space-y-6">
+                
+                <!-- Bloc Recevoir -->
+                <div class="bg-indigo-50 p-4 rounded-xl border border-indigo-100">
+                    <h2 class="font-bold text-indigo-900 mb-2">Je veux recevoir</h2>
+                    <p class="text-sm text-indigo-700 mb-4">Génère un code pour qu'on t'envoie un fichier.</p>
+                    <button onclick="startReceiving()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-4 rounded-xl transition shadow-md flex items-center justify-center gap-2">
+                        📥 Recevoir un fichier
+                    </button>
+                </div>
+
+                <div class="flex items-center gap-4 text-slate-400">
+                    <div class="h-px bg-slate-200 flex-1"></div>
+                    <span class="text-sm font-medium">OU</span>
+                    <div class="h-px bg-slate-200 flex-1"></div>
+                </div>
+
+                <!-- Bloc Envoyer -->
+                <div class="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                    <h2 class="font-bold text-slate-700 mb-2">Je veux envoyer</h2>
+                    <p class="text-sm text-slate-500 mb-4">Entre le code affiché sur l'appareil du receveur.</p>
+                    <div class="flex gap-2">
+                        <input type="text" id="manual-code-input" placeholder="Ex: A7K9X" class="w-full bg-white p-3 rounded-xl text-center font-mono font-bold text-lg outline-none border border-slate-300 focus:border-indigo-500 transition uppercase" maxlength="5">
+                    </div>
+                    <button onclick="connectWithCode()" class="w-full mt-3 bg-slate-800 hover:bg-slate-900 text-white font-semibold py-3 px-4 rounded-xl transition shadow-md flex items-center justify-center gap-2">
+                        📤 Connecter & Envoyer
+                    </button>
+                </div>
             </div>
 
-            <!-- VUE 2 : RECEVEUR (QR Code) -->
+            <!-- VUE 2 : RECEVEUR -->
             <div id="view-receive" class="hidden space-y-4">
+                
+                <!-- Avertissement Anti-Veille -->
+                <div id="wakelock-warning" class="hidden bg-amber-50 border border-amber-200 text-amber-800 text-xs p-2 rounded-lg mb-4 text-left flex items-start gap-2">
+                    <span>💡</span> L'écran restera allumé. Ne verrouillez pas le téléphone ou le transfert s'arrêtera.
+                </div>
+
                 <div id="receive-step-1">
-                    <p class="font-medium text-slate-700 mb-4">Scannez ce QR Code avec l'appareil qui envoie le fichier :</p>
+                    <p class="font-medium text-slate-700 mb-2">Entrez ce code sur l'appareil émetteur :</p>
                     
-                    <div class="text-left bg-slate-50 p-3 rounded-lg border border-slate-200 mb-4">
-                        <label class="block text-xs font-semibold text-slate-500 mb-1">URL de base (modifiez si besoin) :</label>
-                        <input type="text" id="base-url-input" class="w-full bg-white p-2 rounded text-sm outline-none border border-slate-300 focus:border-indigo-500 transition" oninput="updateShareLink()">
-                        <div id="local-file-warning" class="hidden text-xs text-amber-600 mt-2 font-medium">
-                            ⚠️ Fichier local détecté. Le QR Code ne marchera pas sur un téléphone. Pour tester sur ce PC, copiez le lien ci-dessous dans un nouvel onglet.
+                    <!-- Code géant -->
+                    <div class="bg-indigo-100 border-2 border-indigo-300 rounded-xl p-4 mb-4">
+                        <span id="display-short-code" class="text-5xl font-mono font-black text-indigo-700 tracking-widest">-----</span>
+                    </div>
+
+                    <p class="font-medium text-slate-700 mb-2 text-sm">Ou scannez ce QR Code :</p>
+                    <div class="flex justify-center mb-6">
+                        <div class="bg-white p-3 rounded-xl border-2 border-slate-100 inline-block shadow-sm">
+                            <div id="qrcode"></div>
                         </div>
                     </div>
 
-                    <div class="flex justify-center mb-4 bg-white p-2 rounded-xl border-2 border-slate-100 inline-block">
-                        <div id="qrcode"></div>
-                    </div>
-                    
-                    <p class="text-sm text-slate-500 mb-2">Ou partagez ce lien :</p>
-                    <div class="flex items-center gap-2 bg-slate-100 p-2 rounded-lg">
-                        <input type="text" id="share-link" readonly class="bg-transparent text-sm flex-1 outline-none text-slate-600 truncate">
-                        <button id="copy-btn" onclick="copyLink()" class="bg-indigo-100 text-indigo-600 hover:bg-indigo-200 px-3 py-2 rounded text-sm font-medium transition">Copier</button>
-                    </div>
-                    <div class="mt-6 flex items-center justify-center gap-2 text-amber-600 font-medium">
+                    <!-- Options alternatives -->
+                    <details class="text-left bg-slate-50 p-3 rounded-lg border border-slate-200 mb-4">
+                        <summary class="text-sm font-semibold text-slate-500 cursor-pointer outline-none">Options du lien</summary>
+                        <div class="mt-3 pt-3 border-t border-slate-200">
+                            <label class="block text-xs font-semibold text-slate-500 mb-1">URL de base :</label>
+                            <input type="text" id="base-url-input" class="w-full bg-white p-2 rounded text-xs outline-none border border-slate-300 mb-3" oninput="updateShareLink()">
+                            
+                            <div class="flex items-center gap-2 bg-slate-100 p-2 rounded-lg">
+                                <input type="text" id="share-link" readonly class="bg-transparent text-xs flex-1 outline-none text-slate-600 truncate">
+                                <button id="copy-btn" onclick="copyLink()" class="bg-indigo-100 text-indigo-600 px-2 py-1 rounded text-xs font-medium">Copier</button>
+                            </div>
+                        </div>
+                    </details>
+
+                    <div class="mt-4 flex items-center justify-center gap-2 text-amber-600 font-medium">
                         <span class="animate-pulse">⏳</span> En attente de connexion...
                     </div>
                 </div>
@@ -80,7 +118,7 @@
             <!-- VUE 3 : EMETTEUR -->
             <div id="view-send" class="hidden space-y-4">
                 <div id="send-status-connecting" class="p-4 bg-amber-50 text-amber-700 rounded-xl">
-                    <span class="animate-pulse">🔌</span> Connexion à l'appareil distant...
+                    <span class="animate-pulse">🔌</span> Connexion au code <span id="connecting-code-display" class="font-bold">...</span>
                 </div>
 
                 <div id="send-form" class="hidden space-y-4">
@@ -117,13 +155,41 @@
         let conn = null;
         let selectedFile = null;
         let currentPeerId = null;
+        let wakeLock = null;
 
         const show = (id) => document.getElementById(id).classList.remove('hidden');
         const hide = (id) => document.getElementById(id).classList.add('hidden');
 
+        // Empêche l'écran de s'éteindre
+        async function requestWakeLock() {
+            if ('wakeLock' in navigator) {
+                try {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                    show('wakelock-warning');
+                    
+                    // Si on perd le focus et qu'on le retrouve, on redemande le wakelock
+                    document.addEventListener('visibilitychange', async () => {
+                        if (wakeLock !== null && document.visibilityState === 'visible') {
+                            wakeLock = await navigator.wakeLock.request('screen');
+                        }
+                    });
+                } catch (err) {
+                    console.warn(`Wake Lock API non supportée ou refusée: ${err.message}`);
+                }
+            }
+        }
+
+        // Génère un code court de 5 caractères
+        function generateShortCode() {
+            const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Sans O, 0, I, 1 pour éviter la confusion
+            let code = '';
+            for(let i=0; i<5; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
+            return code;
+        }
+
+        // Check URL (si on a cliqué sur un lien)
         const urlParams = new URLSearchParams(window.location.search);
         const targetId = urlParams.get('sendTo');
-
         if (targetId) {
             hide('view-home');
             show('view-send');
@@ -141,15 +207,18 @@
         function startReceiving() {
             hide('view-home');
             show('view-receive');
+            requestWakeLock(); // Anti-veille
             
-            const myId = Math.random().toString(36).substring(2, 9);
-            peer = new Peer(myId);
+            const myShortCode = generateShortCode();
+            document.getElementById('display-short-code').innerText = myShortCode;
+            
+            // On utilise le code court comme ID PeerJS (avec un préfixe pour éviter les collisions globales)
+            peer = new Peer('p2p-share-' + myShortCode);
 
             peer.on('open', (id) => {
                 currentPeerId = id;
                 let baseUrl = window.location.href.split('?')[0];
                 document.getElementById('base-url-input').value = baseUrl;
-                if (baseUrl.startsWith('file:')) show('local-file-warning');
                 updateShareLink();
             });
 
@@ -160,17 +229,15 @@
 
                 conn.on('data', async (data) => {
                     if (data.type === 'header') {
-                        // Réception de l'entête : demande à l'utilisateur d'accepter
                         fileMeta = data;
                         document.getElementById('incoming-file-name').innerText = `${data.filename} (${(data.size / 1024 / 1024).toFixed(2)} Mo)`;
                         show('receive-accept-dialog');
                     } 
                     else if (data.type === 'chunk') {
-                        // Écriture du morceau
                         if (isStreaming && writableStream) {
                             await writableStream.write(data.data);
                         } else {
-                            receivedBuffers.push(data.data); // Fallback RAM (risqué pour gros fichiers)
+                            receivedBuffers.push(data.data);
                         }
                         
                         receivedSize += data.data.byteLength;
@@ -179,15 +246,13 @@
                         document.getElementById('receive-progress-text').innerText = `Réception : ${percent}%`;
                     } 
                     else if (data.type === 'eof') {
-                        // Fin du fichier
                         hide('receive-progress-container');
                         const dlArea = document.getElementById('download-area');
                         
                         if (isStreaming && writableStream) {
                             await writableStream.close();
-                            dlArea.innerHTML = `<div class="p-4 bg-green-50 text-green-700 rounded-xl border border-green-200 mt-4 text-center font-medium">✅ Fichier sauvegardé avec succès !</div>`;
+                            dlArea.innerHTML = `<div class="p-4 bg-green-50 text-green-700 rounded-xl border border-green-200 mt-4 text-center font-medium">✅ Fichier sauvegardé !</div>`;
                         } else {
-                            // Fallback Blob (Mobile / Firefox)
                             const blob = new Blob(receivedBuffers, { type: fileMeta.mimeType });
                             const url = URL.createObjectURL(blob);
                             dlArea.innerHTML = `
@@ -205,7 +270,7 @@
                 
                 conn.on('close', () => {
                     if (isStreaming && writableStream) writableStream.close();
-                    document.getElementById('receive-step-2').innerHTML += `<p class="text-red-500 mt-2 text-sm">❌ Connexion perdue avec l'émetteur.</p>`;
+                    document.getElementById('receive-step-2').innerHTML += `<p class="text-red-500 mt-2 text-sm">❌ Connexion perdue.</p>`;
                 });
             });
         }
@@ -216,14 +281,13 @@
             document.getElementById('receive-progress-text').innerText = `Réception : 0%`;
             document.getElementById('receive-progress-bar').style.width = '0%';
             
-            // Tentative d'utilisation de l'API File System (Chrome/Edge) pour écrire sur le disque
             if ('showSaveFilePicker' in window) {
                 try {
                     fileHandle = await window.showSaveFilePicker({ suggestedName: fileMeta.filename });
                     writableStream = await fileHandle.createWritable();
                     isStreaming = true;
                 } catch (e) {
-                    console.warn("Écriture disque annulée/non supportée. Fallback en RAM.", e);
+                    console.warn("Écriture disque annulée. Fallback RAM.");
                     isStreaming = false;
                     receivedBuffers = [];
                 }
@@ -233,7 +297,7 @@
             }
             
             receivedSize = 0;
-            conn.send({ type: 'ready' }); // On informe l'émetteur qu'il peut envoyer les chunks
+            conn.send({ type: 'ready' });
         }
 
         function updateShareLink() {
@@ -245,14 +309,28 @@
             try {
                 const qrContainer = document.getElementById('qrcode');
                 qrContainer.innerHTML = ''; 
-                new QRCode(qrContainer, { text: shareUrl, width: 200, height: 200, colorDark : "#1e1b4b", colorLight : "#ffffff", correctLevel : QRCode.CorrectLevel.L });
-            } catch (err) { console.error(err); }
+                new QRCode(qrContainer, { text: shareUrl, width: 160, height: 160, colorDark : "#1e1b4b", colorLight : "#ffffff", correctLevel : QRCode.CorrectLevel.L });
+            } catch (err) {}
         }
 
         // --- Logique Emetteur ---
         let isSending = false;
 
+        function connectWithCode() {
+            let code = document.getElementById('manual-code-input').value.trim().toUpperCase();
+            if (code.length !== 5) {
+                alert("Le code doit faire 5 caractères.");
+                return;
+            }
+            hide('view-home');
+            show('view-send');
+            initSender('p2p-share-' + code);
+        }
+
         function initSender(receiverId) {
+            requestWakeLock(); // Anti-veille
+            document.getElementById('connecting-code-display').innerText = receiverId.replace('p2p-share-', '');
+            
             peer = new Peer();
             peer.on('open', () => {
                 conn = peer.connect(receiverId, { reliable: true });
@@ -266,7 +344,8 @@
                     }
                 });
                 conn.on('error', (err) => {
-                    document.getElementById('send-status-connecting').innerHTML = `❌ Erreur : ${err.message || err}`;
+                    document.getElementById('send-status-connecting').innerHTML = `❌ Erreur de connexion (Code invalide ?)`;
+                    document.getElementById('send-status-connecting').classList.replace('bg-amber-50', 'bg-red-50');
                 });
                 conn.on('close', () => {
                     isSending = false;
@@ -308,12 +387,12 @@
         }
 
         function startSendingChunks() {
-            const CHUNK_SIZE = 256 * 1024; // 256 Ko
+            const CHUNK_SIZE = 256 * 1024; 
             let offset = 0;
             const reader = new FileReader();
 
             reader.onload = function(e) {
-                if (!conn.open || !isSending) return; // Arrêt si déco
+                if (!conn.open || !isSending) return;
 
                 conn.send({ type: 'chunk', data: e.target.result });
                 offset += e.target.result.byteLength;
@@ -335,10 +414,8 @@
 
             const checkBufferAndReadNext = () => {
                 if (!conn.open || !isSending) return;
-                
-                // BACKPRESSURE : Si le tampon WebRTC dépasse 8 Mo, on fait une pause
                 if (conn.dataChannel && conn.dataChannel.bufferedAmount > 8 * 1024 * 1024) {
-                    setTimeout(checkBufferAndReadNext, 50); // Attend 50ms
+                    setTimeout(checkBufferAndReadNext, 50);
                 } else {
                     readSlice(offset);
                 }
